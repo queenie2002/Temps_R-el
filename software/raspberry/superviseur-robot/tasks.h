@@ -66,11 +66,14 @@ private:
     ComRobot robot;
     int robotStarted = 0;
     int move = MESSAGE_ROBOT_STOP;
-    int battery = 0; //is it this MESSAGE_ROBOT_BATTERY_LEVEL;
+    int battery = 0;
     int start = MESSAGE_ROBOT_START_WITHOUT_WD;
     int counter_write = 0;
     int open_camera = 0;
-    Camera * camera = new Camera(sm,5);
+    Camera * camera;
+    int runningCamera = 0;
+    int close_camera = 0;
+    int search_arena = 0;
 
     
     /**********************************************************************/
@@ -85,6 +88,10 @@ private:
     RT_TASK th_battery;
     RT_TASK th_reloadWD;
     RT_TASK th_open_camera;
+    RT_TASK th_camera;
+    RT_TASK th_close_camera;
+    RT_TASK th_search_arena;
+
 
 
 
@@ -100,6 +107,10 @@ private:
     RT_MUTEX mutex_battery;
     RT_MUTEX mutex_start;
     RT_MUTEX mutex_open_camera;
+    RT_MUTEX mutex_camera;
+    RT_MUTEX mutex_close_camera;
+    RT_MUTEX mutex_search_arena;
+
 
 
 
@@ -144,6 +155,7 @@ private:
     /**
      * @brief Thread starting the communication with the robot.
      */
+
     void StartRobotTask(void *arg);
     
     /**
@@ -161,10 +173,26 @@ private:
      */
     void ReloadWDTask(void *arg);
 
-     /**
+    /**
      * @brief Thread handling opening the camera of the robot.
      */
     void OpenCameraTask(void *arg);
+
+    /**
+     * @brief Thread handling running the camera of the robot.
+     */
+    void CameraTask(void *arg);
+
+    /**
+     * @brief Thread handling running the camera of the robot.
+     */
+    void CloseCameraTask(void *arg);
+
+    /**
+     * @brief Thread handling running the camera of the robot.
+     */
+    void SearchArenaTask(void *arg);
+
     
     /**********************************************************************/
     /* Queue services                                                     */
