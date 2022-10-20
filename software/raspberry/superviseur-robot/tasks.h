@@ -131,6 +131,12 @@ private:
      * @brief Thread handling control of the robot.
      */
     void MoveTask(void *arg);
+
+/**
+     * @brief Thread handling battery of the robot.
+     */
+    void BatteryTask(void *arg);
+
     
     /**********************************************************************/
     /* Queue services                                                     */
