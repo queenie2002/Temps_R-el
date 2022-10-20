@@ -76,6 +76,7 @@ private:
     int search_arena = 0;
     int validate_arena; //validate = 1, cancel = 0
     Arena * arenaFound;
+    int searchRobot = 0;
 
 
 
@@ -100,6 +101,7 @@ private:
 
 
 
+
     
     /**********************************************************************/
     /* Mutex                                                              */
@@ -116,6 +118,8 @@ private:
     RT_MUTEX mutex_search_arena;
     RT_MUTEX mutex_validate_arena;
     RT_MUTEX mutex_arena_found;
+    RT_MUTEX mutex_search_robot;
+
 
 
 
@@ -192,14 +196,16 @@ private:
     void CameraTask(void *arg);
 
     /**
-     * @brief Thread handling running the camera of the robot.
+     * @brief Thread handling closing the camera of the robot.
      */
     void CloseCameraTask(void *arg);
 
     /**
-     * @brief Thread handling running the camera of the robot.
+     * @brief Thread handling searching for the arena.
      */
     void SearchArenaTask(void *arg);
+
+   
 
     
     /**********************************************************************/
