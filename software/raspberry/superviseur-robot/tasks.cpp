@@ -28,6 +28,8 @@
 #define PRIORITY_TCAMERA 21
 #define PRIORITY_TBATTERY 15
 #define PRIORITY_TRELOADWD 26
+#define PRIORITY_TOPENCAMERA 21
+
 
 
 
@@ -83,6 +85,10 @@ void Tasks::Init() {
         exit(EXIT_FAILURE);
     }
     if (err = rt_mutex_create(&mutex_start, NULL)) {
+        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+    if (err = rt_mutex_create(&mutex_open_camera, NULL)) {
         cerr << "Error mutex create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -149,6 +155,10 @@ void Tasks::Init() {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_task_create(&th_open_camera, "th_open_camera", 0, PRIORITY_TOPENCAMERA, 0)) {
+        cerr << "Error task create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
     cout << "Tasks created successfully" << endl << flush;
 
     /**************************************************************************************/
@@ -198,9 +208,14 @@ void Tasks::Run() {
         exit(EXIT_FAILURE);
     }
     if (err = rt_task_start(&th_reloadWD, (void(*)(void*)) & Tasks::ReloadWDTask, this)) {
-        cerr << "Error task start RELOAD WD ERROR ----------------!!!!!!!!!!!!: " << strerror(-err) << endl << flush;
+        cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_task_start(&th_open_camera, (void(*)(void*)) & Tasks::OpenCameraTask, this)) {
+        cerr << "Error task start OPEN CAMERA ERROR----------------!!!!!!!!!!!!: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+
 
     cout << "Tasks launched" << endl << flush;
 }
@@ -295,6 +310,8 @@ void Tasks::ReceiveFromMonTask(void *arg) {
 
         if (msgRcv->CompareID(MESSAGE_MONITOR_LOST)) {
             delete(msgRcv);
+            cout << "Perte de communication avec le moniteur                           !!!!!!!!!!" << msgRcv->ToString() << endl << flush;
+
             exit(-1);
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_COM_OPEN)) {
             rt_sem_v(&sem_openComRobot);
@@ -307,7 +324,6 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             rt_mutex_release(&mutex_start);
             rt_sem_v(&sem_startRobot);
 
-            
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_GO_FORWARD) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_BACKWARD) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_LEFT) ||
@@ -319,12 +335,18 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             rt_mutex_release(&mutex_move);
 
 
-
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_BATTERY_GET)) {
             rt_mutex_acquire(&mutex_battery, TM_INFINITE);
             battery = 1; //tells to check battery
             rt_mutex_release(&mutex_battery);
         }
+        else if (msgRcv->CompareID(MESSAGE_CAM_OPEN)) {
+            rt_mutex_acquire(&mutex_open_camera, TM_INFINITE);
+            open_camera = 1; //tells to do the task camera
+            rt_mutex_release(&mutex_open_camera);
+        }
+
+
         delete(msgRcv); // mus be deleted manually, no consumer
     }
 }
@@ -383,6 +405,7 @@ void Tasks::StartRobotTask(void *arg) {
             cout << "Start robot without watchdog (";
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
             msgSend = robot.Write(robot.StartWithoutWD());
+            
             if (msgSend -> CompareID(MESSAGE_ANSWER_ROBOT_TIMEOUT)) {
                 counter_write ++;
                 if (counter_write >=3) {
@@ -396,6 +419,7 @@ void Tasks::StartRobotTask(void *arg) {
             else {
                 counter_write = 0;
             }
+            
 
             rt_mutex_release(&mutex_robot);
             cout << msgSend->GetID();
@@ -432,6 +456,8 @@ void Tasks::StartRobotTask(void *arg) {
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
 
             msgSend = robot.Write(robot.StartWithWD());
+
+            
             if (msgSend -> CompareID(MESSAGE_ANSWER_ROBOT_TIMEOUT)) {
                 counter_write ++;
                 if (counter_write >=3) {
@@ -505,6 +531,7 @@ void Tasks::MoveTask(void *arg) {
 
             Message * msgSend = robot.Write(new Message((MessageID)cpMove));
             
+            
             if (msgSend -> CompareID(MESSAGE_ANSWER_ROBOT_TIMEOUT)) {
                 counter_write ++;
                 if (counter_write >=3) {
@@ -517,7 +544,7 @@ void Tasks::MoveTask(void *arg) {
             else {
                 counter_write = 0;
             }
-
+            
 
             rt_mutex_release(&mutex_robot);
         }
@@ -652,9 +679,6 @@ void Tasks::BatteryTask(void *arg) {
                     counter_write = 0;
                 }
 
-                
-
-
                 rt_mutex_acquire(&mutex_battery, TM_INFINITE);
                 battery=0;
                 rt_mutex_release(&mutex_battery);   
@@ -670,3 +694,46 @@ void Tasks::BatteryTask(void *arg) {
     }
 }
 
+
+void Tasks::OpenCameraTask(void *arg) {
+    int rs;
+
+    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+    // Synchronization barrier (waiting that all tasks are starting)
+    rt_sem_p(&sem_barrier, TM_INFINITE);
+    
+    /**************************************************************************************/
+    /* The task starts here                                                               */
+    /**************************************************************************************/
+    rt_task_set_periodic(NULL, TM_NOW, 500000000);
+
+    while (1) {
+        rt_task_wait_period(NULL);
+        cout << "Camera Update";
+        rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
+        rs = robotStarted;
+        rt_mutex_release(&mutex_robotStarted);
+        if (rs == 1) { //si le robot est allumé
+
+            if (open_camera==1) {
+               
+                cout << "On va ouvrir la camera attention                    !!!!!!!!!!!!!!!!";
+                if (camera -> Open()) {
+                    cout << "We're opening the camera                    !!!!!!!!!!!!!!!!";
+                } else {
+                    WriteInQueue(&q_messageToMon, new Message(MESSAGE_ANSWER_COM_ERROR)); 
+                    cout << "We failed to open the camera :((((                   !!!!!!!!!!!!!!!!";
+                };
+
+                rt_mutex_acquire(&mutex_open_camera, TM_INFINITE);
+                open_camera=0;
+                rt_mutex_release(&mutex_open_camera);   
+
+                
+  
+            }
+
+        }
+        cout << endl << flush;
+    }
+}

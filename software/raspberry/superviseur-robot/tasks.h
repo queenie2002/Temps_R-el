@@ -66,9 +66,11 @@ private:
     ComRobot robot;
     int robotStarted = 0;
     int move = MESSAGE_ROBOT_STOP;
-    int battery = MESSAGE_ROBOT_BATTERY_LEVEL;
+    int battery = 0; //is it this MESSAGE_ROBOT_BATTERY_LEVEL;
     int start = MESSAGE_ROBOT_START_WITHOUT_WD;
     int counter_write = 0;
+    int open_camera = 0;
+    Camera * camera = new Camera(sm,5);
 
     
     /**********************************************************************/
@@ -82,6 +84,8 @@ private:
     RT_TASK th_move;
     RT_TASK th_battery;
     RT_TASK th_reloadWD;
+    RT_TASK th_open_camera;
+
 
 
 
@@ -95,6 +99,8 @@ private:
     RT_MUTEX mutex_move;
     RT_MUTEX mutex_battery;
     RT_MUTEX mutex_start;
+    RT_MUTEX mutex_open_camera;
+
 
 
     /**********************************************************************/
@@ -154,6 +160,11 @@ private:
      * @brief Thread handling reloading the watchdog of the robot.
      */
     void ReloadWDTask(void *arg);
+
+     /**
+     * @brief Thread handling opening the camera of the robot.
+     */
+    void OpenCameraTask(void *arg);
     
     /**********************************************************************/
     /* Queue services                                                     */
