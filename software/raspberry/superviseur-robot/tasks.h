@@ -68,6 +68,7 @@ private:
     int move = MESSAGE_ROBOT_STOP;
     int battery = MESSAGE_ROBOT_BATTERY_LEVEL;
     int start = MESSAGE_ROBOT_START_WITHOUT_WD;
+    int counter_write = 0;
 
     
     /**********************************************************************/
@@ -80,6 +81,8 @@ private:
     RT_TASK th_startRobot;
     RT_TASK th_move;
     RT_TASK th_battery;
+    RT_TASK th_reloadWD;
+
 
 
     
@@ -101,6 +104,7 @@ private:
     RT_SEM sem_openComRobot;
     RT_SEM sem_serverOk;
     RT_SEM sem_startRobot;
+    RT_SEM sem_reloadWD;
 
     /**********************************************************************/
     /* Message queues                                                     */
@@ -141,11 +145,15 @@ private:
      */
     void MoveTask(void *arg);
 
-/**
+    /**
      * @brief Thread handling battery of the robot.
      */
     void BatteryTask(void *arg);
 
+    /**
+     * @brief Thread handling reloading the watchdog of the robot.
+     */
+    void ReloadWDTask(void *arg);
     
     /**********************************************************************/
     /* Queue services                                                     */
