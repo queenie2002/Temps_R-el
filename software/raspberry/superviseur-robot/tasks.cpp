@@ -106,6 +106,10 @@ void Tasks::Init() {
         cerr << "Error mutex create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_mutex_create(&mutex_validate_arena, NULL)) {
+        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
     cout << "Mutexes created successfully" << endl << flush;
 
     /**************************************************************************************/
@@ -128,6 +132,10 @@ void Tasks::Init() {
         exit(EXIT_FAILURE);
     }
     if (err = rt_sem_create(&sem_reloadWD, NULL, 0, S_FIFO)) {
+        cerr << "Error semaphore create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+    if (err = rt_sem_create(&sem_arena, NULL, 0, S_FIFO)) {
         cerr << "Error semaphore create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -198,6 +206,7 @@ void Tasks::Init() {
     
     
     camera = new Camera();
+    arenaFound = new Arena();
 }
 
 /**
@@ -396,7 +405,19 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             search_arena = 1; //tells to do the search arena
             rt_mutex_release(&mutex_search_arena);
         }
-        
+        else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_CONFIRM)) {
+            rt_mutex_acquire(&mutex_validate_arena, TM_INFINITE);
+            validate_arena = 1; //tells to validate arena
+            rt_mutex_release(&mutex_validate_arena);
+            rt_sem_v(&sem_arena);
+
+        }
+        else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_INFIRM)) {
+            rt_mutex_acquire(&mutex_validate_arena, TM_INFINITE);
+            validate_arena = 0; //tells to cancel arena
+            rt_mutex_release(&mutex_validate_arena);
+            rt_sem_v(&sem_arena);
+        }
 
 
         delete(msgRcv); // mus be deleted manually, no consumer
@@ -811,8 +832,13 @@ void Tasks::CameraTask(void *arg) {
             if (runningCamera==1) {
                
                 Img image = camera -> Grab();
+
+                if (!(arenaFound -> IsEmpty())) {
+                    image.DrawArena(*arenaFound);
+                    cout << "on garde le draw arena image grab                        !!!!!!!!!!!!!!!!";
+
+                }
                 MessageImg * message = new MessageImg(MESSAGE_CAM_IMAGE, &image);
-                message -> SetImage(&image);
                 WriteInQueue(&q_messageToMon, message); 
                 
             }
@@ -898,34 +924,61 @@ void Tasks::SearchArenaTask(void *arg) {
                 Img image = camera -> Grab();
                 MessageImg * message = new MessageImg(MESSAGE_CAM_IMAGE, &image);
 
-                Arena arena = image.SearchArena();
+
+                Arena anArena = image.SearchArena();
 
                 Message * msgSend;
-                if (arena.IsEmpty()) {
+                if (anArena.IsEmpty()) {
                     msgSend = new Message(MESSAGE_ANSWER_NACK);
                     cout << "We couldn't find the arena                         !!!!!!!!!!!!!!!!";
                 } else {
-                    cout << "We found the arena and trying to draw arena                        !!!!!!!!!!!!!!!!";
-                    image.DrawArena(arena);
+                    image.DrawArena(anArena);
                     msgSend = new Message(MESSAGE_ANSWER_ACK);
-
 
                     cout << "in the draw arena phase                        !!!!!!!!!!!!!!!!";
                     MessageImg * messageImageArena = new MessageImg(MESSAGE_CAM_IMAGE, &image);
                     WriteInQueue(&q_messageToMon, message); 
 
+                    cout << "waiting to validate                         !!!!!!!!!!!!!!!!";
+
+                    rt_sem_p(&sem_arena, TM_INFINITE);
+                    cout << "validate arena                     !!!!!!!!!!!!!!!!" << validate_arena;
+
+
+                    if (validate_arena == 1) {
+                        rt_mutex_acquire(&mutex_arena_found, TM_INFINITE);
+                        *arenaFound = anArena;
+                        rt_mutex_release(&mutex_arena_found);
+                        
+                        rt_mutex_acquire(&mutex_camera, TM_INFINITE);
+                        runningCamera = 1; 
+                        cout << "on relance la caméra pcq on a validé                         !!!!!!!!!!!!!!!!";
+
+                        rt_mutex_release(&mutex_camera);
+                    } else if (validate_arena == 0) {                       
+                        rt_mutex_acquire(&mutex_camera, TM_INFINITE);
+                        runningCamera = 1; 
+                        cout << "on relance la caméra pcq on a infirmé                         !!!!!!!!!!!!!!!!";
+
+                        rt_mutex_release(&mutex_camera);
+                    }
+                    
+                    rt_mutex_acquire(&mutex_validate_arena, TM_INFINITE);
+                    validate_arena = -1;
+                    rt_mutex_release(&mutex_validate_arena);
+
+                    rt_sem_v(&sem_arena);
+
+
                 }
                 WriteInQueue(&q_messageToMon, msgSend); // msgSend will be deleted by sendToMon
-
-
-
-
-
 
 
                 rt_mutex_acquire(&mutex_search_arena, TM_INFINITE);
                 search_arena=0;
                 rt_mutex_release(&mutex_search_arena);   
+
+                
 
             }
 

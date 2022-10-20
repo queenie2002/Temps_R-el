@@ -74,6 +74,10 @@ private:
     int runningCamera = 0;
     int close_camera = 0;
     int search_arena = 0;
+    int validate_arena; //validate = 1, cancel = 0
+    Arena * arenaFound;
+
+
 
     
     /**********************************************************************/
@@ -110,6 +114,9 @@ private:
     RT_MUTEX mutex_camera;
     RT_MUTEX mutex_close_camera;
     RT_MUTEX mutex_search_arena;
+    RT_MUTEX mutex_validate_arena;
+    RT_MUTEX mutex_arena_found;
+
 
 
 
@@ -122,6 +129,7 @@ private:
     RT_SEM sem_serverOk;
     RT_SEM sem_startRobot;
     RT_SEM sem_reloadWD;
+    RT_SEM sem_arena;
 
     /**********************************************************************/
     /* Message queues                                                     */
