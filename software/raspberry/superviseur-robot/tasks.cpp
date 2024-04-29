@@ -19,18 +19,18 @@
 #include <stdexcept>
 
 // Déclaration des priorités des taches
-#define PRIORITY_TSERVER 30
-#define PRIORITY_TOPENCOMROBOT 20
-#define PRIORITY_TMOVE 23
+#define PRIORITY_TSERVER 30            
+#define PRIORITY_TOPENCOMROBOT 20      
+#define PRIORITY_TMOVE 23              //we set move to a higher priority than the task running the camera
 #define PRIORITY_TSENDTOMON 22
-#define PRIORITY_TRECEIVEFROMMON 25
+#define PRIORITY_TRECEIVEFROMMON 25    //very important task because we need to know the orders that come from the monitor in order to respond accordingly
 #define PRIORITY_TSTARTROBOT 20
 #define PRIORITY_TCAMERA 21
-#define PRIORITY_TBATTERY 15
-#define PRIORITY_TRELOADWD 26
+#define PRIORITY_TBATTERY 15           //is less important, because checking the battery doesn't affect the behavior of the robot
+#define PRIORITY_TRELOADWD 26          //very important, we need it to be on time or it will stop the robot 
 #define PRIORITY_TOPENCAMERA 21
 #define PRIORITY_TCLOSECAMERA 21
-#define PRIORITY_TSEARCHARENA 20
+#define PRIORITY_TSEARCHARENA 20        
 
 
 
@@ -150,6 +150,7 @@ void Tasks::Init() {
     /* Tasks creation                                                                     */
     /**************************        return new Message(MESSAGE_ROBOT_POWEROFF);
 ************************************************************/
+    
     if (err = rt_task_create(&th_server, "th_server", 0, PRIORITY_TSERVER, 0)) {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
@@ -218,6 +219,8 @@ void Tasks::Init() {
  * @brief Démarrage des tâches
  */
 void Tasks::Run() {
+    //here we start the tasks that run all along, some wait for mutexes to be changed to start the task
+    
     rt_task_set_priority(NULL, T_LOPRIO);
     int err;
 
@@ -356,16 +359,25 @@ void Tasks::ReceiveFromMonTask(void *arg) {
     /**************************************************************************************/
     /* The task receiveFromMon starts here                                                */
     /**************************************************************************************/
+    
     rt_sem_p(&sem_serverOk, TM_INFINITE);
     cout << "Received message from monitor activated" << endl << flush;
 
     while (1) {
+
+        //we receive a message
         msgRcv = monitor.Read();
         cout << "Rcv <= " << msgRcv->ToString() << endl << flush;
-        
+
+        //according to what type of message it is, we update the variables
+
+        //if we receive a message saying we lost communication with the monitor:
         if (msgRcv->CompareID(MESSAGE_MONITOR_LOST)) {
             delete(msgRcv);
-            cout << "Perte de communication avec le moniteur\n" << msgRcv->ToString() << endl << flush;
+
+            //we print a message to say we lost communication with the monitor
+            cout << "Loss of the communication with the monitor\n" << msgRcv->ToString() << endl << flush;
+
             
             //stop robot
             rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
@@ -385,22 +397,32 @@ void Tasks::ReceiveFromMonTask(void *arg) {
 
             //close camera
             rt_mutex_acquire(&mutex_close_camera, TM_INFINITE);
-            close_camera = 1;
+            close_camera = 1;  //when close_camera = 1, runs the task that closes the camera
             rt_mutex_release(&mutex_close_camera);
 
             exit(-1);
-        } else if (msgRcv->CompareID(MESSAGE_ROBOT_COM_OPEN)) {
+        } 
+        //if we receive a message saying we want to open the communication with the robot:
+        else if (msgRcv->CompareID(MESSAGE_ROBOT_COM_OPEN)) {
+            
+            //since we want to open the communication, we can release the semaphore 
             rt_sem_v(&sem_openComRobot);
         }
-        
+         //if we receive a message saying start the robot with or without watchdog:
          else if (msgRcv->CompareID(MESSAGE_ROBOT_START_WITHOUT_WD)||
                 msgRcv->CompareID(MESSAGE_ROBOT_START_WITH_WD)) {
+
+            //we get the id of the message to know if we start with or without a watchdog
             rt_mutex_acquire(&mutex_start, TM_INFINITE);
             start = msgRcv->GetID();
             rt_mutex_release(&mutex_start);
+
+            //release the semaphore startRobot to start the StartRobotTask
             rt_sem_v(&sem_startRobot);
 
-        } else if (msgRcv->CompareID(MESSAGE_ROBOT_GO_FORWARD) ||
+        } 
+         //if we receive a message sayin how we should move: 
+         else if (msgRcv->CompareID(MESSAGE_ROBOT_GO_FORWARD) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_BACKWARD) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_LEFT) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_RIGHT) ||
@@ -410,7 +432,6 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             move = msgRcv->GetID();
             rt_mutex_release(&mutex_move);
 
-
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_BATTERY_GET)) {
             rt_mutex_acquire(&mutex_battery, TM_INFINITE);
             battery = 1; //tells to check battery
@@ -418,23 +439,25 @@ void Tasks::ReceiveFromMonTask(void *arg) {
         }
         else if (msgRcv->CompareID(MESSAGE_CAM_OPEN)) {
             rt_mutex_acquire(&mutex_open_camera, TM_INFINITE);
-            open_camera = 1; //tells to do the task camera
+            open_camera = 1; //tells to open the camera
             rt_mutex_release(&mutex_open_camera);
         }
         else if (msgRcv->CompareID(MESSAGE_CAM_CLOSE)) {
             rt_mutex_acquire(&mutex_close_camera, TM_INFINITE);
-            close_camera = 1; //tells to do the task camera
+            close_camera = 1; //tells to close the camera
             rt_mutex_release(&mutex_close_camera);
         }
         else if (msgRcv->CompareID(MESSAGE_CAM_ASK_ARENA)) {
             rt_mutex_acquire(&mutex_search_arena, TM_INFINITE);
-            search_arena = 1; //tells to do the search arena
+            search_arena = 1; //tells to search the arena
             rt_mutex_release(&mutex_search_arena);
         }
         else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_CONFIRM)) {
             rt_mutex_acquire(&mutex_validate_arena, TM_INFINITE);
-            validate_arena = 1; //tells to validate arena
+            validate_arena = 1; //tells to validate the arena
             rt_mutex_release(&mutex_validate_arena);
+
+            //enables the validation of the arena, only when we click on the button on the monitor
             rt_sem_v(&sem_arena);
 
         }
@@ -442,6 +465,8 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             rt_mutex_acquire(&mutex_validate_arena, TM_INFINITE);
             validate_arena = 0; //tells to cancel arena
             rt_mutex_release(&mutex_validate_arena);
+
+            //enables the infirmation of the arena, only when we click on the button on the monitor
             rt_sem_v(&sem_arena);
         }
         else if (msgRcv->CompareID(MESSAGE_CAM_POSITION_COMPUTE_START)) {
@@ -454,9 +479,6 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             searchRobot = 0; //tells to stop looking for robot on picture
             rt_mutex_release(&mutex_search_robot);
         }
-
-
-    
         delete(msgRcv); // mus be deleted manually, no consumer
     }
 }
@@ -508,40 +530,40 @@ void Tasks::StartRobotTask(void *arg) {
     while (1) {
         
         Message * msgSend;
+        //we wait until we are allowed to start the robot
         rt_sem_p(&sem_startRobot, TM_INFINITE);
 
+        //with the ID, we put in start, we check if we want to start with or without the watchdog
         if(start == MESSAGE_ROBOT_START_WITHOUT_WD) {
             
-            cout << "Start robot without watchdog (";
+            cout << "Start robot without watchdog";
+
+            
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
             msgSend = robot.Write(robot.StartWithoutWD());
-            
+
+            //we use the counter_write after each time we call Write
             if (msgSend -> CompareID(MESSAGE_ANSWER_ROBOT_TIMEOUT)) {
-                counter_write ++;
-                if (counter_write >=3) {
+                counter_write ++; //we increment the timer every time we fail to communicate with the robot
+                if (counter_write >=3) { //if we fail 3 times then we stop the robot
                     rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
                     robotStarted = 0;
                     rt_mutex_release(&mutex_robotStarted);
                    
                 }
             }
-            else {
+            else { //if we managed to communicate then we reset the counter
                 counter_write = 0;
             }
-            
-
             rt_mutex_release(&mutex_robot);
-            cout << msgSend->GetID();
-            cout << ")" << endl;
 
-            cout << "Movement answer: " << msgSend->ToString() << endl << flush;
             WriteInQueue(&q_messageToMon, msgSend);  // msgSend will be deleted by sendToMon
 
-            if (msgSend->GetID() == MESSAGE_ANSWER_ACK) {
+            if (msgSend->GetID() == MESSAGE_ANSWER_ACK) { //if we successfully started the robot we set robotStarted to 1
                 rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
                 robotStarted = 1;
                 rt_mutex_release(&mutex_robotStarted);
-            } else if (msgSend->GetID() == MESSAGE_ANSWER_NACK) {
+            } else if (msgSend->GetID() == MESSAGE_ANSWER_NACK) { //we set robotStarted to 0 because we failed to start the robot
                 rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
                 robotStarted = 0;
                 rt_mutex_release(&mutex_robotStarted);
@@ -549,14 +571,9 @@ void Tasks::StartRobotTask(void *arg) {
         } 
         
         else if(start == MESSAGE_ROBOT_START_WITH_WD) {
-          /*envoyer reload watchdog toutes les secondes
-            mais faire attention à l'avoir renvoye in a range of 50ms avant que l'ancien watchdog expire (après 1s)
-            faire attention à synchroniser le start du robot with watchdog avec la tache reload watchdog qui envoie le watchdog
-
-            on crée une nouvelle tache pour reload watchdog qui run pas dans le background et qui est lancé à partir de cette tache startrobot
-            apparemment il faut utiliser sémaphore, qu'on crée
-
-            le robot de son cote gère le compteur et fails by himself, we just need to send the watchdogs properly
+            /* Send reload watchdog every second
+            Before the old watchdog expires (after 1s), the next watchdog has to be sent within a range of 50ms. 
+            Therefore, the start of the robot has to be synchronized with the start of the watchdog task. That is why we start the task reloadWD from the start robot with the watchdog and not from the task Init().
             */
             cout << "Start robot with watchdog (";
 
@@ -580,10 +597,7 @@ void Tasks::StartRobotTask(void *arg) {
             }
 
             rt_mutex_release(&mutex_robot);
-            cout << msgSend->GetID();
-            cout << ")" << endl;
 
-            cout << "Movement answer: " << msgSend->ToString() << endl << flush;
             WriteInQueue(&q_messageToMon, msgSend);  // msgSend will be deleted by sendToMon
 
             if (msgSend->GetID() == MESSAGE_ANSWER_ACK) {
@@ -596,13 +610,9 @@ void Tasks::StartRobotTask(void *arg) {
                 rt_mutex_release(&mutex_robotStarted);
             }
 
-            rt_sem_v(&sem_reloadWD);
+            rt_sem_v(&sem_reloadWD); //release the semaphore for synchronization between the counter of the robot and the watchdog
 
         } 
-
-
-
-
     }
 }
 
@@ -671,7 +681,7 @@ void Tasks::ReloadWDTask(void *arg) {
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
     rt_sem_p(&sem_barrier, TM_INFINITE);
-    //semaphore watchdog to synchronise
+    //semaphore watchdog to synchronise with the counter of the robot
     rt_sem_p(&sem_reloadWD, TM_INFINITE);
     
     /**************************************************************************************/
@@ -689,7 +699,7 @@ void Tasks::ReloadWDTask(void *arg) {
                        
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
 
-            Message * msgSend = robot.Write(new Message (MESSAGE_ROBOT_RELOAD_WD));
+            Message * msgSend = robot.Write(new Message (MESSAGE_ROBOT_RELOAD_WD)); //message to reload the watchdog
             if (msgSend -> CompareID(MESSAGE_ANSWER_ROBOT_TIMEOUT)) {
                 counter_write ++;
                 if (counter_write >=3) {
@@ -757,19 +767,19 @@ void Tasks::BatteryTask(void *arg) {
     /**************************************************************************************/
     /* The task starts here                                                               */
     /**************************************************************************************/
-    rt_task_set_periodic(NULL, TM_NOW, 1000000000);
+    rt_task_set_periodic(NULL, TM_NOW, 1000000000); //we check every 100 ms
 
     while (1) {
         rt_task_wait_period(NULL);
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
         rs = robotStarted;
         rt_mutex_release(&mutex_robotStarted);
-        if (rs == 1) { //si le robot est allumé
+        if (rs == 1) { 
 
-            if (battery==1) {
+            if (battery==1) { //if we want to read the battery
                
                 rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-                Message * battery_level_message = robot.Write(robot.GetBattery());
+                Message * battery_level_message = robot.Write(robot.GetBattery()); //get the battery
                 rt_mutex_release(&mutex_robot);
 
                 if (battery_level_message -> CompareID(MESSAGE_ANSWER_ROBOT_TIMEOUT)) {
@@ -785,7 +795,7 @@ void Tasks::BatteryTask(void *arg) {
                 }
 
                 rt_mutex_acquire(&mutex_battery, TM_INFINITE);
-                battery=0;
+                battery=0; //we don't want to read the battery level anymore
                 rt_mutex_release(&mutex_battery);   
 
                 cout << " battery level ";
@@ -817,18 +827,18 @@ void Tasks::OpenCameraTask(void *arg) {
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
         rs = robotStarted;
         rt_mutex_release(&mutex_robotStarted);
-        if (rs == 1) { //si le robot est allumé
+        if (rs == 1) { 
 
-            if (open_camera==1) {
+            if (open_camera==1) { //if we want to open the camera
                
-                if (camera -> Open()) {
+                if (camera -> Open()) { //opens camera
                     rt_mutex_acquire(&mutex_camera, TM_INFINITE);
                     runningCamera = 1; //tells to do the task running camera
                     rt_mutex_release(&mutex_camera);
 
                 } else {
                     WriteInQueue(&q_messageToMon, new Message(MESSAGE_ANSWER_COM_ERROR)); 
-                    cout << "We failed to open the camera                         !!!!!!!!!!!!!!!!";
+                    cout << "We failed to open the camera";
                 };
 
                 rt_mutex_acquire(&mutex_open_camera, TM_INFINITE);
@@ -929,21 +939,21 @@ void Tasks::CloseCameraTask(void *arg) {
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
         rs = robotStarted;
         rt_mutex_release(&mutex_robotStarted);
-        if (rs == 1) { //si le robot est allumé
+        if (rs == 1) { 
 
-            if (close_camera==1) {
+            if (close_camera==1) { //if we want to close the camera
                 
                 rt_mutex_acquire(&mutex_camera, TM_INFINITE);
                 runningCamera = 0; //tells to stop the task running camera
                 rt_mutex_release(&mutex_camera);
-                camera -> Close();
+                camera -> Close(); //we close the camera
                 
                 Message * msgSend;
-                if (camera -> IsOpen()) {
+                if (camera -> IsOpen()) { //if the camera is still open : problem
                     msgSend = new Message(MESSAGE_ANSWER_NACK);
-                    cout << "We failed to close the camera                         !!!!!!!!!!!!!!!!";
+                    cout << "We failed to close the camera";
                 } else {
-                    msgSend = new Message(MESSAGE_ANSWER_ACK);
+                    msgSend = new Message(MESSAGE_ANSWER_ACK); //we send a message of confirmation
                 }
                 WriteInQueue(&q_messageToMon, msgSend); // msgSend will be deleted by sendToMon
 
@@ -976,43 +986,43 @@ void Tasks::SearchArenaTask(void *arg) {
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
         rs = robotStarted;
         rt_mutex_release(&mutex_robotStarted);
-        if (rs == 1) { //si le robot est allumé
+        if (rs == 1) { 
 
-            if (search_arena==1) {
+            if (search_arena==1) { //if we want to search for the arena
                 
                 rt_mutex_acquire(&mutex_camera, TM_INFINITE);
                 runningCamera = 0; //tells to stop the task running camera
                 rt_mutex_release(&mutex_camera);
                 
 
-                Img image = camera -> Grab();
+                Img image = camera -> Grab(); //we capture the image of the camera
                 //MessageImg * message = new MessageImg(MESSAGE_CAM_IMAGE, &image);
 
-                Arena anArena = image.SearchArena();
+                Arena anArena = image.SearchArena(); //we look for the arena
 
                 Message * msgSend;
-                if (anArena.IsEmpty()) {
-                    msgSend = new Message(MESSAGE_ANSWER_NACK);
-                    cout << "We couldn't find the arena                         !!!!!!!!!!!!!!!!";
+                if (anArena.IsEmpty()) { //we didn't find the arena
+                    msgSend = new Message(MESSAGE_ANSWER_NACK); 
+                    cout << "We couldn't find the arena";
                 } else {
-                    image.DrawArena(anArena);
+                    image.DrawArena(anArena); //if we found the arena, then we draw it
                     msgSend = new Message(MESSAGE_ANSWER_ACK);
 
                     MessageImg * messageImageArena = new MessageImg(MESSAGE_CAM_IMAGE, &image);
-                    WriteInQueue(&q_messageToMon, messageImageArena); 
+                    WriteInQueue(&q_messageToMon, messageImageArena); //we send the image to the monitor
 
 
-                    rt_sem_p(&sem_arena, TM_INFINITE);
+                    rt_sem_p(&sem_arena, TM_INFINITE); //semaphore to wait until the button for validation is clicked
 
-                    if (validate_arena == 1) {
+                    if (validate_arena == 1) { //if the arena is ok
                         rt_mutex_acquire(&mutex_arena_found, TM_INFINITE);
-                        *arenaFound = anArena;
+                        *arenaFound = anArena; //set the arena found to the arenaFound variable to be able to use it when the camera is running
                         rt_mutex_release(&mutex_arena_found);
                         
                         rt_mutex_acquire(&mutex_camera, TM_INFINITE);
-                        runningCamera = 1; 
+                        runningCamera = 1; //the camera can start again
                         rt_mutex_release(&mutex_camera);
-                    } else if (validate_arena == 0) {                       
+                    } else if (validate_arena == 0) {   //if the arena is not ok we don't draw it and go back to starting the camera                    
                         rt_mutex_acquire(&mutex_camera, TM_INFINITE);
                         runningCamera = 1; 
                         rt_mutex_release(&mutex_camera);
@@ -1022,7 +1032,7 @@ void Tasks::SearchArenaTask(void *arg) {
                     validate_arena = -1;
                     rt_mutex_release(&mutex_validate_arena);
 
-                    rt_sem_v(&sem_arena);
+                    rt_sem_v(&sem_arena); //we release the semaphore so that it waits until someone clicks on the button
 
 
                 }
